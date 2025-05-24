@@ -4,6 +4,11 @@
         <TargetFramework>net9.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
+        <InvariantGlobalization>true</InvariantGlobalization>
+        <ContainerRepository>clansty/vrcurl-pooling</ContainerRepository>
+        <ContainerFamily>azurelinux3.0-distroless</ContainerFamily>
+        <ContainerRuntimeIdentifiers>linux-x64</ContainerRuntimeIdentifiers>
+        <ContainerRegistry>gitea.c5y.moe</ContainerRegistry>
     </PropertyGroup>
 
     <ItemGroup>
