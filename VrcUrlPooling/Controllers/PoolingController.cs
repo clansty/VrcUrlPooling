@@ -14,6 +14,7 @@ public class PoolingController(IConfiguration configuration, ILogger<PoolingCont
     public async Task<IActionResult> Get(int id)
     {
         var ua = Request.Headers.UserAgent;
+        var shouldProxy = false;
 
         UrlSlotBase? data;
         if (ua.ToString().Contains("NSPlayer"))
@@ -23,18 +24,20 @@ public class PoolingController(IConfiguration configuration, ILogger<PoolingCont
         else if (ua.ToString().Contains("UnityWebRequest"))
         {
             data = await db.TextUrls.FirstOrDefaultAsync(x => x.Id == id);
+            shouldProxy = true;
         }
         else
         {
             return StatusCode(418);
         }
 
-        if (data is { Url: not null } && data.ExpiresAt > DateTime.UtcNow)
-        {
-            return RedirectPreserveMethod(data.Url);
-        }
-
-        return NotFound();
+        if (data is not { Url: not null } || !(data.ExpiresAt > DateTime.UtcNow)) return NotFound();
+        if (!shouldProxy) return RedirectPreserveMethod(data.Url);
+        // Proxy the request to the URL
+        var httpClient = new HttpClient();
+        var response = await httpClient.GetAsync(data.Url);
+        var responseStream = await response.Content.ReadAsStreamAsync();
+        return new FileStreamResult(responseStream, response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream");
     }
 
     public record PoolingRequest(string Secret, string Url, string Type);
