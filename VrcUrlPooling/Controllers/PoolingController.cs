@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using VrcUrlPooling.Models;
 using VrcUrlPooling.Services;
 
 namespace VrcUrlPooling.Controllers;
@@ -8,40 +9,8 @@ namespace VrcUrlPooling.Controllers;
 public class PoolingController(IConfiguration configuration, ILogger<PoolingController> logger, AppDbContext db, UrlRegisterService reg) : Controller
 {
     private readonly string secret = configuration.GetValue<string>("Secret")!;
-    
-    [HttpGet]
-    [Route("/{id:int}")]
-    [ResponseCache(Location = ResponseCacheLocation.None, NoStore = true)]
-    public async Task<IActionResult> Get(int id)
-    {
-        var ua = Request.Headers.UserAgent;
-        var shouldProxy = false;
 
-        UrlSlotBase? data;
-        if (ua.ToString().Contains("NSPlayer"))
-        {
-            data = await db.VideoUrls.FirstOrDefaultAsync(x => x.Id == id);
-        }
-        else if (ua.ToString().Contains("UnityWebRequest"))
-        {
-            data = await db.TextUrls.FirstOrDefaultAsync(x => x.Id == id);
-            shouldProxy = true;
-        }
-        else
-        {
-            return StatusCode(418);
-        }
-
-        if (data is not { Url: not null } || !(data.ExpiresAt > DateTime.UtcNow)) return NotFound();
-        if (!shouldProxy) return RedirectPreserveMethod(data.Url);
-        // Proxy the request to the URL
-        var httpClient = new HttpClient();
-        var response = await httpClient.GetAsync(data.Url);
-        var responseStream = await response.Content.ReadAsStreamAsync();
-        return new FileStreamResult(responseStream, response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream");
-    }
-
-    public record PoolingRequest(string Secret, string Url, string Type);
+    public record PoolingRequest(string Secret, string Url, string Type, int MaxSize = 0, bool AllowCache = true);
     [HttpPost]
     public async Task<IActionResult> Register([FromBody] PoolingRequest? request)
     {
@@ -61,7 +30,7 @@ public class PoolingController(IConfiguration configuration, ILogger<PoolingCont
         {
             case "image":
             case "text":
-                allocated = await reg.AllocateSlotAsync(db.TextUrls, request.Url);
+                allocated = await reg.AllocateSlotAsync(db.TextUrls, request.Url, request.MaxSize, request.AllowCache);
                 break;
             case "video":
                 allocated = await reg.AllocateSlotAsync(db.VideoUrls, request.Url);
@@ -81,7 +50,7 @@ public class PoolingController(IConfiguration configuration, ILogger<PoolingCont
         });
     }
     
-    public record BatchPoolingRequest(string Secret, string[] Url, string Type);
+    public record BatchPoolingRequest(string Secret, string[] Url, string Type, int MaxSize = 0, bool AllowCache = true);
 
     [HttpPost]
     public async Task<IActionResult> RegisterBatch([FromBody] BatchPoolingRequest? request)
@@ -104,7 +73,7 @@ public class PoolingController(IConfiguration configuration, ILogger<PoolingCont
 
         var allocatedSlots = request.Type switch
         {
-            "image" or "text" => await reg.BatchAllocateSlotsAsync(db.TextUrls, request.Url),
+            "image" or "text" => await reg.BatchAllocateSlotsAsync(db.TextUrls, request.Url, request.MaxSize, request.AllowCache),
             "video" => await reg.BatchAllocateSlotsAsync(db.VideoUrls, request.Url),
             _ => throw new InvalidOperationException($"Invalid type: {request.Type}"),
         };

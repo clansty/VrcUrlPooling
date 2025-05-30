@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using VrcUrlPooling.Models;
 
 namespace VrcUrlPooling;
 

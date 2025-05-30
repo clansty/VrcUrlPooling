@@ -6,7 +6,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
-builder.Services.AddScoped<UrlRegisterService>();
+builder.Services.AddScoped<UrlRegisterService>()
+    .AddSingleton<ImageScaleService>();
 
 var connectionString = builder.Configuration.GetSection("MySqlConnectionString").Value;
 var serverVersion = ServerVersion.AutoDetect(connectionString);

@@ -1,10 +1,11 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using VrcUrlPooling.Models;
 
 namespace VrcUrlPooling.Services;
 
 public class UrlRegisterService(ILogger<UrlRegisterService> logger, AppDbContext db)
 {
-    public async Task<UrlSlotBase?> AllocateSlotAsync<T>(DbSet<T> dbSet, string url)
+    public async Task<UrlSlotBase?> AllocateSlotAsync<T>(DbSet<T> dbSet, string url, int imageSize = 0, bool allowCache = true)
         where T : UrlSlotBase
     {
         using var tx = await db.Database.BeginTransactionAsync();
@@ -18,6 +19,13 @@ public class UrlRegisterService(ILogger<UrlRegisterService> logger, AppDbContext
         if (existingSlot is not null)
         {
             existingSlot.ExpiresAt = DateTime.UtcNow.AddDays(1);
+
+            if (existingSlot is TextUrlSlot ts)
+            {
+                ts.AllowCache &= allowCache;
+                ts.MaxSize = Math.Max(imageSize, ts.MaxSize);
+            }
+
             await db.SaveChangesAsync();
             await tx.CommitAsync();
             return existingSlot;
@@ -32,6 +40,13 @@ public class UrlRegisterService(ILogger<UrlRegisterService> logger, AppDbContext
         {
             availableSlot.Url = url;
             availableSlot.ExpiresAt = DateTime.UtcNow.AddDays(1);
+
+            if (availableSlot is TextUrlSlot ts)
+            {
+                ts.AllowCache = allowCache;
+                ts.MaxSize = imageSize;
+            }
+
             await db.SaveChangesAsync();
             await tx.CommitAsync();
             return availableSlot;
@@ -40,7 +55,7 @@ public class UrlRegisterService(ILogger<UrlRegisterService> logger, AppDbContext
         return null;
     }
 
-    public async Task<List<UrlSlotBase>> BatchAllocateSlotsAsync<T>(DbSet<T> dbSet, IEnumerable<string> urls)
+    public async Task<List<UrlSlotBase>> BatchAllocateSlotsAsync<T>(DbSet<T> dbSet, IEnumerable<string> urls, int imageSize = 0, bool allowCache = false)
         where T : UrlSlotBase, new()
     {
         var urlList = urls.Distinct().ToList();
@@ -69,6 +84,13 @@ public class UrlRegisterService(ILogger<UrlRegisterService> logger, AppDbContext
             foreach (var slot in existingSlots)
             {
                 slot.ExpiresAt = DateTime.UtcNow.AddDays(1);
+
+                if (slot is TextUrlSlot ts)
+                {
+                    ts.AllowCache &= allowCache;
+                    ts.MaxSize = Math.Max(imageSize, ts.MaxSize);
+                }
+
                 result.Add(slot);
             }
 
@@ -86,6 +108,13 @@ public class UrlRegisterService(ILogger<UrlRegisterService> logger, AppDbContext
                     var url = remainingUrls[i];
                     slot.Url = url;
                     slot.ExpiresAt = DateTime.UtcNow.AddDays(1);
+
+                    if (slot is TextUrlSlot ts)
+                    {
+                        ts.AllowCache = allowCache;
+                        ts.MaxSize = imageSize;
+                    }
+
                     result.Add(slot);
                 }
             }
