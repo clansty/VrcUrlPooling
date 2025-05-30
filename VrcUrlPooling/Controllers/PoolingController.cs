@@ -101,34 +101,13 @@ public class PoolingController(IConfiguration configuration, ILogger<PoolingCont
         {
             return BadRequest("No URLs provided.");
         }
-        
-        var allocatedSlots = new List<UrlSlotBase>();
-        foreach (var url in request.Url)
+
+        var allocatedSlots = request.Type switch
         {
-            if (string.IsNullOrEmpty(url))
-            {
-                continue; // Skip empty URLs
-            }
-
-            UrlSlotBase? allocated = null;
-            switch (request.Type)
-            {
-                case "image":
-                case "text":
-                    allocated = await reg.AllocateSlotAsync(db.TextUrls, url);
-                    break;
-                case "video":
-                    allocated = await reg.AllocateSlotAsync(db.VideoUrls, url);
-                    break;
-                default:
-                    return BadRequest($"Invalid type: {request.Type}");
-            }
-
-            if (allocated != null)
-            {
-                allocatedSlots.Add(allocated);
-            }
-        }
+            "image" or "text" => await reg.BatchAllocateSlotsAsync(db.TextUrls, request.Url),
+            "video" => await reg.BatchAllocateSlotsAsync(db.VideoUrls, request.Url),
+            _ => throw new InvalidOperationException($"Invalid type: {request.Type}"),
+        };
 
         return Ok(allocatedSlots);
     }

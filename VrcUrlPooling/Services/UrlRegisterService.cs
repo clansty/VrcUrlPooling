@@ -39,4 +39,65 @@ public class UrlRegisterService(ILogger<UrlRegisterService> logger, AppDbContext
 
         return null;
     }
+
+    public async Task<List<UrlSlotBase>> BatchAllocateSlotsAsync<T>(DbSet<T> dbSet, IEnumerable<string> urls)
+        where T : UrlSlotBase, new()
+    {
+        var urlList = urls.Distinct().ToList();
+        if (urlList.Count == 0)
+        {
+            return [];
+        }
+
+        using var tx = await db.Database.BeginTransactionAsync();
+        var entityType = db.Model.FindEntityType(typeof(T));
+        var tableName = entityType!.GetTableName()!;
+        var result = new List<UrlSlotBase>();
+
+        try
+        {
+            // 1. 查找所有已存在的绑定
+            var existingSlots = await dbSet
+                .FromSqlRaw($"SELECT * FROM `{tableName}` WHERE Url IN ({string.Join(",", urlList.Select((_, i) => $"{{{i}}}"))}) AND ExpiresAt > NOW() FOR UPDATE",
+                    urlList.ToArray())
+                .ToListAsync();
+
+            var existingUrls = existingSlots.Select(s => s.Url).ToHashSet();
+            var remainingUrls = urlList.Where(url => !existingUrls.Contains(url)).ToList();
+
+            // 更新已存在绑定的过期时间
+            foreach (var slot in existingSlots)
+            {
+                slot.ExpiresAt = DateTime.UtcNow.AddDays(1);
+                result.Add(slot);
+            }
+
+            if (remainingUrls.Count != 0)
+            {
+                // 2. 查找空闲槽位
+                var availableSlots = await dbSet
+                    .FromSqlRaw($"SELECT * FROM `{tableName}` WHERE (Url IS NULL OR ExpiresAt < NOW()) LIMIT {remainingUrls.Count} FOR UPDATE")
+                    .ToListAsync();
+
+                // 3. 分配空闲槽位
+                for (int i = 0; i < Math.Min(availableSlots.Count, remainingUrls.Count); i++)
+                {
+                    var slot = availableSlots[i];
+                    var url = remainingUrls[i];
+                    slot.Url = url;
+                    slot.ExpiresAt = DateTime.UtcNow.AddDays(1);
+                    result.Add(slot);
+                }
+            }
+
+            await db.SaveChangesAsync();
+            await tx.CommitAsync();
+            return result;
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+    }
 }
