@@ -1,10 +1,11 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using VrcUrlPooling.Services;
 
 namespace VrcUrlPooling.Controllers;
 
 [Route("[action]")]
-public class PoolingController(IConfiguration configuration, ILogger<PoolingController> logger, AppDbContext db) : Controller
+public class PoolingController(IConfiguration configuration, ILogger<PoolingController> logger, AppDbContext db, UrlRegisterService reg) : Controller
 {
     private readonly string secret = configuration.GetValue<string>("Secret")!;
     
@@ -60,10 +61,10 @@ public class PoolingController(IConfiguration configuration, ILogger<PoolingCont
         {
             case "image":
             case "text":
-                allocated = await AllocateSlotAsync(db.TextUrls, request.Url);
+                allocated = await reg.AllocateSlotAsync(db.TextUrls, request.Url);
                 break;
             case "video":
-                allocated = await AllocateSlotAsync(db.VideoUrls, request.Url);
+                allocated = await reg.AllocateSlotAsync(db.VideoUrls, request.Url);
                 break;
             default:
                 return BadRequest();
@@ -114,10 +115,10 @@ public class PoolingController(IConfiguration configuration, ILogger<PoolingCont
             {
                 case "image":
                 case "text":
-                    allocated = await AllocateSlotAsync(db.TextUrls, url);
+                    allocated = await reg.AllocateSlotAsync(db.TextUrls, url);
                     break;
                 case "video":
-                    allocated = await AllocateSlotAsync(db.VideoUrls, url);
+                    allocated = await reg.AllocateSlotAsync(db.VideoUrls, url);
                     break;
                 default:
                     return BadRequest($"Invalid type: {request.Type}");
@@ -130,42 +131,5 @@ public class PoolingController(IConfiguration configuration, ILogger<PoolingCont
         }
 
         return Ok(allocatedSlots);
-    }
-
-    [NonAction]
-    public async Task<UrlSlotBase?> AllocateSlotAsync<T>(DbSet<T> dbSet, string url)
-        where T : UrlSlotBase
-    {
-        using var tx = await db.Database.BeginTransactionAsync();
-        var entityType = db.Model.FindEntityType(typeof(T));
-
-        // Step 1: 查找是否已有绑定
-        var existingSlot = await dbSet
-            .FromSqlRaw($"SELECT * FROM `{entityType!.GetTableName()!}` WHERE Url = {{0}} AND ExpiresAt > NOW() FOR UPDATE", url)
-            .FirstOrDefaultAsync();
-
-        if (existingSlot is not null)
-        {
-            existingSlot.ExpiresAt = DateTime.UtcNow.AddDays(1);
-            await db.SaveChangesAsync();
-            await tx.CommitAsync();
-            return existingSlot;
-        }
-
-        // 找一个空闲槽位（过期或者未分配）
-        var availableSlot = await dbSet
-            .FromSqlRaw($"SELECT * FROM `{entityType!.GetTableName()!}` WHERE (Url IS NULL OR ExpiresAt < NOW()) LIMIT 1 FOR UPDATE")
-            .FirstOrDefaultAsync();
-
-        if (availableSlot is not null)
-        {
-            availableSlot.Url = url;
-            availableSlot.ExpiresAt = DateTime.UtcNow.AddDays(1);
-            await db.SaveChangesAsync();
-            await tx.CommitAsync();
-            return availableSlot;
-        }
-
-        return null;
     }
 }
