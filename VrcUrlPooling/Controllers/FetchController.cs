@@ -28,7 +28,7 @@ public class FetchController(ILogger<FetchController> logger, AppDbContext db, I
         }
         else
         {
-            return StatusCode(418);
+            return PhysicalFile("/app/index.html", "text/html");
         }
 
         if (data is not { Url: not null } || !(data.ExpiresAt > DateTime.UtcNow)) return NotFound();
